@@ -1,6 +1,7 @@
 <!doctype html>
 <html lang="en-us">
   <head>
+    <link rel="stylesheet" href="main.css">
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <title>Near Earth Objects</title>
@@ -11,12 +12,24 @@
 
         async function init()
         {
+            const canvas = document.getElementById("buffer")
+            canvas.addEventListener('mousedown', function(e) {
+                getCursorPosition(canvas, e)
+            })
+
             const app = await fetch('build/app.wasm');
             const stream = await WebAssembly.instantiateStreaming(app);
             wasm = stream.instance.exports;
             
             if(load_asteroids())
                 draw_asteroids()
+        }
+
+        function getCursorPosition(canvas, event) {
+            const rect = canvas.getBoundingClientRect()
+            const x = event.clientX - rect.left
+            const y = event.clientY - rect.top
+            console.log("x: " + x + " y: " + y)
         }
 
         function date_to_iso(date)
@@ -108,7 +121,7 @@
         {
             var canvas = document.getElementById("buffer");
             var cxt = canvas.getContext("2d");
-            var s = Math.min(window.innerWidth, window.innerHeight)
+            var s = Math.min(document.body.clientWidth, document.body.clientHeight)
 
             canvas.width = s;
             canvas.height = s;
@@ -135,14 +148,22 @@
   </head>
   
   <body onload="init()">
-    <center>
-        <div style="display: inline-block; background-color: purple;">
+        <!-- <div style="display: inline-block; background-color: purple;">
             <h1>Near Earth Objects</h1>
             <button id="run_button" onclick="draw_asteroids()">=</button>
             <label id="ret"></label>
+        </div> -->
+        
+        <div class="crt-monitor">
+            <div class="screen-border">
+                <div class="glass-screen">
+                    <canvas id="buffer" style="align-items: center; display: flex;">
+                    </canvas>
+                    <canvas id="overlay" style="align-items: center; display: flex;">
+                    </canvas>
+                </div>
+            </div>
+            <div class="power-led"></div>
         </div>
-        <canvas id="buffer">
-        </canvas>
-    </center>
   </body>
 </html>

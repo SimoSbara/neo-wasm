@@ -1,0 +1,59 @@
+:root {
+  --monitor-beige: #d8d2c3;
+  --shadow-beige: #b4ae9a;
+  --glass-black: #121212;
+}
+
+.crt-monitor {
+  background-color: var(--monitor-beige);
+  padding: 50px;
+  border-radius: 20px;
+  display: inline-block;
+  position: relative;
+}
+
+.screen-border {
+  background-color: #a09a8a;
+  padding: 10px;
+  border-radius: 10px;
+}
+
+.glass-screen {
+  background-color: var(--glass-black);
+  width: 500px;
+  height: 500px;
+  border-radius: 10px;
+  overflow: hidden;
+  position: relative;
+}
+
+.glass-screen canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  margin: 100px;
+  height: 70vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: #2b2b2b;
+}
+
+.power-led {
+  position: absolute;
+  bottom: 20px;
+  left: 50px;
+  width: 20px;
+  height: 8px;
+
+  background: radial-gradient(circle at 3px 3px, #ff4d4d, #8b0000);
+  
+  box-shadow: 
+    inset 1px 1px 1px rgba(255,255,255,0.4),
+    0 0 5px #ff0000, 
+}
