@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Near Earth Objects</title>
+
+    <script>
+
+        var wasm = null;
+
+        async function init()
+        {
+            const app = await fetch('build/app.wasm');
+            const stream = await WebAssembly.instantiateStreaming(app);
+            wasm = stream.instance.exports;
+            
+            if(load_asteroids())
+                draw_asteroids()
+        }
+
+        function date_to_iso(date)
+        {
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+
+            return `${yyyy}-${mm}-${dd}`
+        } 
+
+        function elab_asteroids(asteroids_json)
+        {
+            console.log(asteroids_json)
+
+            const encoder = new TextEncoder();
+            const bytes = encoder.encode(asteroids_json);
+
+            var ptr = wasm.alloc_memory(bytes.length + 1)
+
+            if (ptr === 0) 
+            {
+                console.error("Failed to alloc()");
+                return false;
+            }
+
+            const memoriaWasm = new Int8Array(wasm.memory.buffer, ptr, bytes.length + 1);
+            memoriaWasm.set(bytes);
+            memoriaWasm[bytes.length] = 0;
+
+            var status = wasm.load_asteroids(ptr, bytes.length)
+            wasm.free_memory(ptr)
+
+            console.log("status load " + status)
+
+            if(!status)
+            {
+                console.log("Failed to parse JSON: " + asteroids_json);
+                return false;
+            }
+            
+            return true
+        }
+
+        async function load_asteroids() 
+        {
+            var today = new Date()
+            var past_7days = new Date()
+            past_7days.setDate(today.getDate() - 7)
+
+            var date = new Date()
+            var today = date_to_iso(date)
+
+            date.setDate(date.getDate() - 7)
+            var past_7days = date_to_iso(date)
+        
+            console.log(today)
+            console.log(past_7days)
+
+            var cache_name = 'cache_asteroids_' + today + "_" + past_7days
+            var json = localStorage.getItem(cache_name);
+
+            if (json === null)
+            {
+                var response = await fetch(`https://api.nasa.gov/neo/rest/v1/feed?start_date=${past_7days}&end_date=${today}&api_key=DEMO_KEY`);
+
+                if (!response.ok)
+                    throw new Error("GET failed! ${response.status}");
+                
+                json = await response.json();
+                json = JSON.stringify(json)
+                localStorage.setItem(cache_name, json);
+                console.log("JSON saved in cache!");
+            }
+            else
+                console.log("JSON found in cache!");
+
+            var status = elab_asteroids(json)
+            
+            if(status)
+                console.log("num " + wasm.get_num_asteroids())
+
+            console.log("status " + status)
+
+            return status
+        }
+
+        async function draw_asteroids() 
+        {
+            var canvas = document.getElementById("buffer");
+            var cxt = canvas.getContext("2d");
+            var s = Math.min(window.innerWidth, window.innerHeight)
+
+            canvas.width = s;
+            canvas.height = s;
+
+            var width = canvas.width;
+            var height = canvas.height;
+            var ptr = wasm.draw_asteroids(width, height);
+
+            if (ptr === 0) 
+            {
+                console.error("Cannot allocate memory!");
+                return;
+            }
+
+            console.log(width + " " + height)
+
+            var wasmArray = new Uint8ClampedArray(wasm.memory.buffer, ptr, width * height * 4);
+            var imageData = new ImageData(wasmArray, width, height);
+
+            cxt.putImageData(imageData, 0, 0);
+            //document.body.appendChild(canvas);
+        }
+    </script>
+  </head>
+  
+  <body onload="init()">
+    <center>
+        <div style="display: inline-block; background-color: purple;">
+            <h1>Near Earth Objects</h1>
+            <button id="run_button" onclick="draw_asteroids()">=</button>
+            <label id="ret"></label>
+        </div>
+        <canvas id="buffer">
+        </canvas>
+    </center>
+  </body>
+</html>
