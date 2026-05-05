@@ -26,6 +26,22 @@ enum planets_e
     NUM_PLANETS
 };
 
+enum planets_info_e
+{
+    THETA_J2000 = 0, //angolo di riferimento nel primo gennaio 2000
+    YEAR_PERIOD, //quanti giorni per un anno solare?
+    ECCENTRICITY, //visto che le orbite sono ellissi
+    PERIHELION, //perielio... fammi stare zitto
+    SIZE_SCALING, //per la grafica
+    NUM_PLANET_INFOS
+};
+
+struct position
+{
+    uint32_t x;
+    uint32_t y;
+};
+
 struct asteroid
 {
     char name[ASTEROID_NAME_SIZE + 1];
@@ -36,17 +52,23 @@ struct asteroid
 
     int is_hazardous;
 
-    uint32_t x_img, y_img; //dopo plot
+    //posizione img dopo draw
+    struct position pos;
 };
 
 //rgba
 static unsigned char* img = 0;
 static size_t img_size = 0;
 
-static struct asteroid asteroids[MAX_ASTEROIDS];
-static size_t num_asteroids = 0;
+//per ogni osservazione, c'è un pianeta di riferimento
+static struct asteroid asteroids[NUM_PLANETS][MAX_ASTEROIDS] = {0};
+static size_t num_asteroids[NUM_PLANETS] = {0};
 
+//per stimare l'orbita, si capit??
 static uint32_t days_since_epoch = 0;
+
+//pianeti
+struct position planet_positions[NUM_PLANETS] = {0};
 
 //astronomical units
 static float planet_radius[NUM_PLANETS] =
@@ -57,6 +79,13 @@ static float planet_radius[NUM_PLANETS] =
     1.52f
 };
 
+static float planet_infos[NUM_PLANETS][NUM_PLANET_INFOS] =
+{
+    {252.25f, 87.97f, 0.2056f, 77.45f, 1},
+    {181.98f, 224.7f, 0.0067f, 131.53f, 2},
+    {100.46f, 365.25f, 0.0167f, 102.94f, 2},
+    {355.45f, 686.98f, 0.0934f, 336.04f, 2}
+};
 
 //palette di colori per i pianeti
 #define PLANET_W    8
@@ -162,6 +191,46 @@ struct json_object_element_s* get_element_by_name(struct json_object_element_s* 
     return e;
 }
 
+int check_element_value_type(struct json_object_element_s* e, json_type_t type)
+{
+    if(!e)
+        return 0;
+
+    if(!e->value)
+        return 0;
+
+    if(!e->value->payload)
+        return 0;
+
+    return e->value->type == type;
+}
+
+int64_t get_epoch_approach(struct json_array_element_s* ap)
+{
+    if(!ap)
+        return 0;
+
+    if(!ap->value)
+        return 0;
+
+    if(ap->value->type != json_type_object)
+        return 0;
+
+    struct json_object_element_s* e = get_element_by_name(ap->value->payload, "epoch_date_close_approach");
+
+    if(!e)
+        return 0;
+
+    if(!e->value)
+        return 0;
+
+    if(e->value->type != json_type_number)
+        return 0;
+    
+    //champagne
+    return *(int64_t*)e->value->payload;
+}
+
 int get_string(char* dst, size_t n, struct json_value_s* value)
 {
     if(!value || !dst)
@@ -237,7 +306,7 @@ int draw_planet(uint32_t* img, uint32_t w, uint32_t h, uint32_t xc, uint32_t yc,
         xp = 0;
         for(uint32_t x = 0; x < wp; x++, xp += cx)
         {
-            //branchless e criptico!
+            //branchless e criptico! dai si capisce
             uint32_t pix = ascii[(uint32_t)yp * PLANET_W + (uint32_t)xp];
             *(dst + x) = ((pix >> 24) == 0xff) * pix + ((pix >> 24) != 0xff) * *(dst + x);
         }
@@ -267,10 +336,30 @@ void set_days_since_epoch(uint32_t days)
     days_since_epoch = days;
 }
 
-__attribute__((export_name("draw_asteroids")))
-unsigned char* draw_asteroids(unsigned int w, unsigned int h)
+__attribute__((export_name("get_planet_by_position")))
+int get_planet_by_position(int x, int y)
 {
-    unsigned int size = w * h * 4;
+    struct position* pos = planet_positions;
+    float* info = planet_infos + SIZE_SCALING;
+
+    for(int i = 0; i < NUM_PLANETS; i++, pos++, info += NUM_PLANET_INFOS)
+    {
+        int dx = (int)pos->x - x;
+        int dy = (int)pos->y - y;
+
+        //senza radice quadrata!!!!!!!
+        //vivremo solo di questo
+        if(dx * dx + dy * dy < *info * *info)
+            return i;
+    }
+
+    return -1;
+}
+
+__attribute__((export_name("draw_asteroids")))
+unsigned char* draw_asteroids(uint32_t w, uint32_t h)
+{
+    uint32_t size = w * h * 4;
 
     if(size == 0)
         return 0;
@@ -287,35 +376,48 @@ unsigned char* draw_asteroids(unsigned int w, unsigned int h)
     if(!img)
         return 0;
 
-    unsigned int* p2 = (unsigned int*)img;
-    unsigned int background = 0xff3b190f; //#0f193b
+    uint32_t* p2 = (uint32_t*)img;
+    uint32_t background = 0xff3b190f; //#0f193b
 
     for(int y = 0; y < h; y++)
         for(int x = 0; x < w; x++)
             *p2++ = background;
 
+    uint32_t w2 = w >> 1;
+    uint32_t h2 = h >> 1;
+
     //sole mio
-    draw_planet((uint32_t*)img, w, h, w / 2, h / 2, sun_ascii, 6);
+    draw_planet((uint32_t*)img, w, h, w2, h2, sun_ascii, 6);
 
     //vicino alla terra... il sistema solare è un po troppo
     for(int p = 0; p < NUM_PLANETS; p++)
     {
         float rf = planet_radius[p] / OBSERVATION_RADIUS;
         uint32_t r = rf * w / 2;
-        uint32_t m = 1;
 
-        switch(p)
-        {
-            case MERCURY: m = 1; break;
-            case VENUS: m = 2; break;
-            case EARTH: m = 2; break;
-            case MARS: m = 2; break;
-        }
+        float m = planet_infos[p][THETA_J2000];
+        float period = planet_infos[p][YEAR_PERIOD];
+        float ec = planet_infos[p][ECCENTRICITY];
+        float pe = planet_infos[p][PERIHELION];
+        float scale = planet_infos[p][SIZE_SCALING];
 
-        draw_circle((uint32_t*)img, w, h, w / 2, h / 2, r, 0xffffffff);
-        draw_planet((uint32_t*)img, w, h, w / 2 + r, h / 2, planet_ascii[p], m);
+        //anomalia media
+        float mean = m + (float)days_since_epoch * 360.0f / period;
+        //correzione orbita
+        //int c = 360.0f / M_PI * ec * sin((mean - pe) * 180.0f / M_PI);
+
+        uint32_t tetha = (mean) * 180.0f / M_PI;
+
+        uint32_t xp = r * cos(tetha) + w2;
+        uint32_t yp = r * sin(tetha) + h2;
+
+        planet_positions[p].x = xp;
+        planet_positions[p].y = yp;
+
+        draw_circle((uint32_t*)img, w, h, w2, h2, r, 0xffffffff);
+        draw_planet((uint32_t*)img, w, h, xp, yp, planet_ascii[p], scale);
     }
-    
+
     return img;
 }
 
@@ -340,10 +442,7 @@ int load_asteroids(const char* json, size_t n)
 
     struct json_object_element_s* neo = get_element_by_name(obj->start, "near_earth_objects");
 
-    if(!neo || !neo->value)
-        return 0;
-
-    if(neo->value->type != json_type_object)
+    if(!check_element_value_type(neo, json_type_object))
         return 0;
 
     struct json_object_s* neo_obj = (struct json_object_s*)neo->value->payload;
@@ -373,29 +472,74 @@ int load_asteroids(const char* json, size_t n)
             if(!a->value)
                 return -1;
 
+            uint8_t planet = -1;
+
             struct json_object_s* a_obj = a->value->payload;
             struct json_object_element_s* e = 0;
 
+            //prima devo trovare il pianeta di riferimento
+            //ci potrebbero essere più approach
+            e = get_element_by_name(a_obj->start, "close_approach_data");
+
+            if(!check_element_value_type(e, json_type_array))
+            {
+                a = a->next;
+                continue;
+            }
+
+            struct json_array_s* approach_array = (struct json_array_s*)e->value->payload;
+            struct json_array_element_s* ap = approach_array->start;
+            struct json_array_element_s* near_ap = ap;
+
+            int64_t near_epoch = 0;
+
+            //trovo quella più vicina ad oggi
+            while(ap)
+            {
+                if(ap != approach_array->start)
+                {
+                    int64_t epoch = get_epoch_approach(ap);
+                    if(epoch)       
+                }
+                else //prendo la prima data come riferimento
+                    near_epoch = get_epoch_approach(ap);
+
+                ap = ap->next;
+            }
+
+            //non ho trovato un cazzo oppure è successo qualcosa
+            if(!near_ap)
+            {
+                a = a->next;
+                continue;
+            }
+
+            size_t* num = &num_asteroids[planet];
+            
+            //un po troppi
+            if(*num == MAX_ASTEROIDS)
+            {
+                a = a->next;
+                continue;
+            }
+            
             e = get_element_by_name(a_obj->start, "name");
 
-            if(!e)
-            {
-                a = a->next;
-                continue;
-            }
-                
-            if(!get_string(asteroids[num_asteroids].name, ASTEROID_NAME_SIZE, e->value))
+            if(!check_element_value_type(e, json_type_string))
             {
                 a = a->next;
                 continue;
             }
 
-            e = get_element_by_name(a_obj->start, "near_earth_objects");
+            struct asteroid* asteroid = &asteroids[planet][*num];
 
-            num_asteroids++;
+            if(!get_string(asteroid->name, ASTEROID_NAME_SIZE, e->value->payload))
+            {
+                a = a->next;
+                continue;
+            }
 
-            if(num_asteroids == MAX_ASTEROIDS)
-                return 1;
+            (*num)++;
 
             a = a->next;
         }
@@ -407,7 +551,10 @@ int load_asteroids(const char* json, size_t n)
 }
 
 __attribute__((export_name("get_num_asteroids")))
-size_t get_num_asteroids()
+size_t get_num_asteroids(uint8_t planet)
 {
-    return num_asteroids;
+    if(planet >= NUM_PLANETS)
+        return 0;
+
+    return num_asteroids[planet];
 }

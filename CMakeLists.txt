@@ -20,6 +20,7 @@ target_link_options(app PRIVATE
     "-Wl,--export=get_num_asteroids"
     "-Wl,--export=alloc_memory"
     "-Wl,--export=free_memory"
+    "-Wl,--export=set_days_since_epoch"
 )
 
 set_target_properties(app PROPERTIES SUFFIX ".wasm")

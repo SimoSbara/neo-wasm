@@ -2,13 +2,33 @@
 <html lang="en-us">
   <head>
     <link rel="stylesheet" href="main.css">
+    <link rel="stylesheet" href="win31/combined.min.css">
     <meta charset="utf-8">
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
     <title>Near Earth Objects</title>
 
+    <style>
+        body, button, input, textarea {
+            font-family: 'Microsoft Sans Serif' !important;
+        }
+    </style>
     <script>
 
         var wasm = null;
+
+        function date_to_iso(date)
+        {
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+
+            return `${yyyy}-${mm}-${dd}`
+        } 
+
+        function days_date_diff(first, second) 
+        {        
+            return Math.round((second - first) / (1000 * 60 * 60 * 24));
+        }
 
         async function init()
         {
@@ -21,25 +41,21 @@
             const stream = await WebAssembly.instantiateStreaming(app);
             wasm = stream.instance.exports;
             
+            var diff = days_date_diff(new Date(2000, 1, 1), new Date())
+            console.log("days " + diff)
+            wasm.set_days_since_epoch(diff)
+
             if(load_asteroids())
                 draw_asteroids()
         }
 
-        function getCursorPosition(canvas, event) {
+        function getCursorPosition(canvas, event) 
+        {
             const rect = canvas.getBoundingClientRect()
             const x = event.clientX - rect.left
             const y = event.clientY - rect.top
             console.log("x: " + x + " y: " + y)
         }
-
-        function date_to_iso(date)
-        {
-            const yyyy = date.getFullYear();
-            const mm = String(date.getMonth() + 1).padStart(2, '0');
-            const dd = String(date.getDate()).padStart(2, '0');
-
-            return `${yyyy}-${mm}-${dd}`
-        } 
 
         function elab_asteroids(asteroids_json)
         {
@@ -157,10 +173,28 @@
         <div class="crt-monitor">
             <div class="screen-border">
                 <div class="glass-screen">
-                    <canvas id="buffer" style="align-items: center; display: flex;">
-                    </canvas>
-                    <canvas id="overlay" style="align-items: center; display: flex;">
-                    </canvas>
+                    <canvas id="buffer" style="display: grid; place-content: center;"></canvas>
+                    <!-- <canvas id="overlay" style="align-items: center; display: flex; z-index: 1;"> -->
+                    <div style="width: 100%; height: 100%; place-content: center; position: absolute;background: repeating-conic-gradient(#aeaeae6e 0 25%, #6d6d6d7a 0 50%) 50% / 5px 5px;">
+                        <div class="window active" style="max-width: 300px; margin: auto;">
+                            <div class="title-bar">
+                                <div class="title-bar-text">
+                                    Planet Information
+                                </div>
+                                <div class="title-bar-buttons">
+                                <button data-close=""></button>
+                                </div>
+                            </div>
+                            <div class="dialog-body">
+                                <div id="dlg-info" class="padding">There are 0 asteroids near this planet!</div>
+                                <div class="flex-row gap padding justify-center">
+                                    <button id="btn1">Close</button>
+                                    <button id="btn2">Yes</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- </canvas> -->
                 </div>
             </div>
             <div class="power-led"></div>
