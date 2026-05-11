@@ -122,7 +122,7 @@
         {
             init_events()
 
-            const app = await fetch('build/app.wasm');
+            const app = await fetch('app.wasm');
             const stream = await WebAssembly.instantiateStreaming(app);
             wasm = stream.instance.exports;
             
