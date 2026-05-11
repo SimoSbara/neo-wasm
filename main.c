@@ -93,10 +93,10 @@ static float planet_radius[NUM_PLANETS] =
 
 static float planet_infos[NUM_PLANETS][NUM_PLANET_INFOS] =
 {
-    {252.25f, 87.97f, 0.2056f, 77.45f, 1},
-    {181.98f, 224.7f, 0.0067f, 131.53f, 2},
-    {100.46f, 365.25f, 0.0167f, 102.94f, 2},
-    {355.45f, 686.98f, 0.0934f, 336.04f, 2}
+    {252.25f, 87.97f, 0.2056f, 77.45f, 2},
+    {181.98f, 224.7f, 0.0067f, 131.53f, 3},
+    {100.46f, 365.25f, 0.0167f, 102.94f, 3},
+    {355.45f, 686.98f, 0.0934f, 336.04f, 3}
 };
 
 //palette di colori per i pianeti

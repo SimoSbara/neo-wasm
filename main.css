@@ -41,7 +41,6 @@ body {
   display: flex;
   justify-content: center;
   align-items: center;
-  background-color: #2b2b2b;
 }
 
 .power-led {
@@ -68,4 +67,24 @@ body {
   color: red;
   margin-top: 10px;
   animation: blink-animation 1s steps(1, end) infinite; 
+}
+
+.github-profile {
+  position: absolute;
+  top: 15px;
+  left: 15px; 
+  
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  
+  color: #e0e0e0;
+  text-decoration: none;
+  font-size: 14px;
+  z-index: 1000;
+}
+
+.github-profile:hover {
+  color: #ffffff;
+  text-decoration: underline;
 }
