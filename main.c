@@ -47,11 +47,19 @@ struct asteroid
 {
     char name[ASTEROID_NAME_SIZE + 1];
 
-    //meters
+    //kilometers
     float min_diameter;
     float max_diameter;
 
+    //kilometers
+    float miss_distance;
+
+    //km/h
+    float velocity;
+
     int is_hazardous;
+
+    int64_t timestamp_since_epoch;
 
     //posizione img dopo draw
     struct position pos;
@@ -236,8 +244,10 @@ int64_t get_epoch_approach(struct json_object_s* ap)
     if(!check_element_value_type(e, json_type_number))
         return 0;
     
+    struct json_number_s* num = e->value->payload;
+
     //champagne
-    return *(int64_t*)e->value->payload;
+    return atoll(num->number);
 }
 
 int get_string(char* dst, size_t n, struct json_value_s* value)
@@ -380,9 +390,11 @@ int get_planet_by_position(int x, int y)
         int dx = (int)pos->x - x;
         int dy = (int)pos->y - y;
 
+        float dist = 8 * 8;
+
         //senza radice quadrata!!!!!!!
         //vivremo solo di questo
-        if(dx * dx + dy * dy < *info * *info)
+        if(dx * dx + dy * dy < dist)
             return i;
     }
 
@@ -509,6 +521,15 @@ int load_asteroids(const char* json, size_t n)
             struct json_object_s* a_obj = a->value->payload;
             struct json_object_element_s* e = 0;
 
+            int hazardous = 0;
+
+            //sarà mica pericoloso
+            if(get_element_by_name_type(a_obj->start, "is_potentially_hazardous_asteroid", json_type_true))
+            {
+                //o cazzo
+                hazardous = 1;
+            }
+
             //prima devo trovare il pianeta di riferimento
             //ci potrebbero essere più approach
             if(!(e = get_element_by_name_type(a_obj->start, "close_approach_data", json_type_array)))
@@ -521,6 +542,7 @@ int load_asteroids(const char* json, size_t n)
             struct json_array_element_s* ap = approach_array->start;
             struct json_array_element_s* near_ap = 0;
             int64_t near_epoch_diff = 0;
+            int64_t near_epoch = 0;
 
             //trovo quella più vicina ad oggi
             while(ap)
@@ -533,19 +555,23 @@ int load_asteroids(const char* json, size_t n)
                     continue;
                 }
 
+                int64_t ep = get_epoch_approach(content);
+
                 if(near_ap != 0)
                 {
-                    int64_t diff = llabs(timestamp_since_epoch - get_epoch_approach(content));
+                    int64_t diff = llabs(timestamp_since_epoch - ep);
 
                     if(diff < near_epoch_diff)
                     {
+                        near_epoch = ep;
                         near_epoch_diff = diff;
                         near_ap = ap;   
                     }
                 }
                 else //prendo la prima data come riferimento
                 {
-                    near_epoch_diff = llabs(timestamp_since_epoch - get_epoch_approach(content));
+                    near_epoch = ep;
+                    near_epoch_diff = llabs(timestamp_since_epoch - ep);
                     near_ap = ap;
                 }
                 
@@ -613,6 +639,7 @@ int load_asteroids(const char* json, size_t n)
                 continue;
             }
 
+            //diameter
             if(!(e = get_element_by_name_type(a_obj->start, "estimated_diameter", json_type_object)))
             {
                 a = a->next;
@@ -635,7 +662,7 @@ int load_asteroids(const char* json, size_t n)
                 continue;
             }
 
-            asteroid->min_diameter = *(float*)e->value->payload;
+            asteroid->min_diameter = atof(((struct json_number_s*)e->value->payload)->number);
 
             if(!(e = get_element_by_name_type(diameter->start, "estimated_diameter_max", json_type_number)))
             {
@@ -643,7 +670,47 @@ int load_asteroids(const char* json, size_t n)
                 continue;
             }
 
-            asteroid->max_diameter = *(float*)e->value->payload;
+            asteroid->max_diameter = atof(((struct json_number_s*)e->value->payload)->number);
+            //
+
+            //miss distance
+            if(!(e = get_element_by_name_type(content->start, "miss_distance", json_type_object)))
+            {
+                a = a->next;
+                continue;
+            }
+
+            struct json_object_s* distance = e->value->payload;
+
+            if(!(e = get_element_by_name_type(distance->start, "kilometers", json_type_string)))
+            {
+                a = a->next;
+                continue;
+            }
+
+            asteroid->miss_distance = atof(((struct json_string_s*)e->value->payload)->string);
+            //
+
+            //relative velocity
+            if(!(e = get_element_by_name_type(content->start, "relative_velocity", json_type_object)))
+            {
+                a = a->next;
+                continue;
+            }
+
+            struct json_object_s* vel = e->value->payload;
+
+            if(!(e = get_element_by_name_type(vel->start, "kilometers_per_hour", json_type_string)))
+            {
+                a = a->next;
+                continue;
+            }
+
+            asteroid->velocity = atof(((struct json_string_s*)e->value->payload)->string);
+            //
+
+            asteroid->timestamp_since_epoch = near_epoch;
+            asteroid->is_hazardous = hazardous;
 
             (*num)++;
 
@@ -663,4 +730,88 @@ size_t get_num_asteroids(uint8_t planet)
         return 0;
 
     return num_asteroids[planet];
+}
+
+__attribute__((export_name("get_asteroid_name")))
+char* get_asteroid_name(uint8_t planet, uint8_t i)
+{
+    if(planet >= NUM_PLANETS)
+        return 0;
+
+    if(i < 0 || i >= num_asteroids[planet])
+        return 0;
+
+    return asteroids[planet][i].name;
+}
+
+__attribute__((export_name("get_asteroid_min_diameter")))
+float get_asteroid_min_diameter(uint8_t planet, uint8_t i)
+{
+    if(planet >= NUM_PLANETS)
+        return 0;
+
+    if(i < 0 || i >= num_asteroids[planet])
+        return 0;
+
+    return asteroids[planet][i].min_diameter;
+}
+
+__attribute__((export_name("get_asteroid_max_diameter")))
+float get_asteroid_max_diameter(uint8_t planet, uint8_t i)
+{
+    if(planet >= NUM_PLANETS)
+        return 0;
+
+    if(i < 0 || i >= num_asteroids[planet])
+        return 0;
+
+    return asteroids[planet][i].max_diameter;
+}
+
+__attribute__((export_name("get_asteroid_timestamp")))
+int64_t get_asteroid_timestamp(uint8_t planet, uint8_t i)
+{
+    if(planet >= NUM_PLANETS)
+        return 0;
+
+    if(i < 0 || i >= num_asteroids[planet])
+        return 0;
+
+    return asteroids[planet][i].timestamp_since_epoch;
+}
+
+__attribute__((export_name("get_asteroid_miss_distance")))
+float get_asteroid_miss_distance(uint8_t planet, uint8_t i)
+{
+    if(planet >= NUM_PLANETS)
+        return 0;
+
+    if(i < 0 || i >= num_asteroids[planet])
+        return 0;
+
+    return asteroids[planet][i].miss_distance;
+}
+
+__attribute__((export_name("get_asteroid_velocity")))
+float get_asteroid_velocity(uint8_t planet, uint8_t i)
+{
+    if(planet >= NUM_PLANETS)
+        return 0;
+
+    if(i < 0 || i >= num_asteroids[planet])
+        return 0;
+
+    return asteroids[planet][i].velocity;
+}
+
+__attribute__((export_name("is_asteroid_hazardous")))
+int is_asteroid_hazardous(uint8_t planet, uint8_t i)
+{
+    if(planet >= NUM_PLANETS)
+        return 0;
+
+    if(i < 0 || i >= num_asteroids[planet])
+        return 0;
+
+    return asteroids[planet][i].is_hazardous;
 }

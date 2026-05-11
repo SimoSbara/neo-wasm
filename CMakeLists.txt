@@ -22,6 +22,14 @@ target_link_options(app PRIVATE
     "-Wl,--export=free_memory"
     "-Wl,--export=set_timestamp_since_epoch"
     "-Wl,--export=set_timestamp_since_j2000"
+    "-Wl,--export=get_planet_by_position"
+    "-Wl,--export=get_asteroid_name"
+    "-Wl,--export=get_asteroid_min_diameter"
+    "-Wl,--export=get_asteroid_max_diameter"
+    "-Wl,--export=get_asteroid_miss_distance"
+    "-Wl,--export=get_asteroid_velocity"
+    "-Wl,--export=get_asteroid_timestamp"
+    "-Wl,--export=is_asteroid_hazardous"
 )
 
 set_target_properties(app PROPERTIES SUFFIX ".wasm")

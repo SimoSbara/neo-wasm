@@ -15,6 +15,23 @@
     <script>
 
         var wasm = null;
+        var cur_planet = -1;
+        var cur_asteroid = -1;
+
+        function decode_c_str(pointer) 
+        {
+            const memoryView = new Uint8Array(wasm.memory.buffer);
+
+            let length = 0;
+            while (memoryView[pointer + length] !== 0) {
+                length++;
+            }
+
+            const stringBytes = new Uint8Array(wasm.memory.buffer, pointer, length);
+
+            const decoder = new TextDecoder('utf-8');
+            return decoder.decode(stringBytes);
+        }
 
         function date_to_iso(date)
         {
@@ -24,6 +41,19 @@
 
             return `${yyyy}-${mm}-${dd}`
         } 
+
+        function timestamp_to_iso(t)
+        {
+            let seconds = parseInt(t);
+            let date = new Date(seconds)
+
+            const yyyy = date.getFullYear();
+            const mm = String(date.getMonth() + 1).padStart(2, '0');
+            const dd = String(date.getDate()).padStart(2, '0');
+
+            return `${yyyy}-${mm}-${dd}`
+        } 
+
 
         function days_date_diff(first, second) 
         {        
@@ -35,12 +65,62 @@
             return BigInt(second - first);
         }
 
-        async function init()
+        async function init_events()
         {
             const canvas = document.getElementById("buffer")
             canvas.addEventListener('mousedown', function(e) {
-                getCursorPosition(canvas, e)
+                on_planet_click(canvas, e)
             })
+
+            const btn1 = document.getElementById("btn1")
+            btn1.addEventListener('click', function(e) {
+
+                let dlginfo = document.getElementById("dlg-info")
+                dlginfo.hidden = true
+
+                load_asteroids_table(cur_planet)
+
+                let dlg_asteroids = document.getElementById("dlg-asteroids")
+                dlg_asteroids.hidden = false
+            })
+
+            const btn2 = document.getElementById("btn2")
+            btn2.addEventListener('click', function(e) {
+                let dlg = document.getElementById("dlg-info")
+                dlg.hidden = true
+            })
+
+            const btn1_list = document.getElementById("dlg-asteroids-btn1")
+            btn1_list.addEventListener('click', function(e) {
+
+                if(cur_asteroid == -1)
+                    return
+
+                select_asteroid(cur_asteroid)
+
+                let dlg = document.getElementById("dlg-asteroid-info")
+                dlg.hidden = false
+            })
+
+            const btn2_list = document.getElementById("dlg-asteroids-btn2")
+            btn2_list.addEventListener('click', function(e) {
+                let dlg = document.getElementById("dlg-asteroids")
+                dlg.hidden = true
+
+                cur_planet = -1
+                cur_asteroid = -1
+            })
+
+            const btn_ok = document.getElementById("dlg-asteroid-info-ok")
+            btn_ok.addEventListener('click', function(e) {
+                let dlg = document.getElementById("dlg-asteroid-info")
+                dlg.hidden = true
+            })
+        }
+
+        async function init()
+        {
+            init_events()
 
             const app = await fetch('build/app.wasm');
             const stream = await WebAssembly.instantiateStreaming(app);
@@ -55,19 +135,141 @@
 
             if(load_asteroids())
                 draw_asteroids()
-            else
-                console.log("aia")
         }
 
-        function getCursorPosition(canvas, event) 
+        function load_asteroids_table(planet)
+        {
+            let n = wasm.get_num_asteroids(planet)
+            const tbody = document.getElementById('asteroids-list')
+
+            //svuoto
+            tbody.innerHTML = "";
+            cur_asteroid = -1
+
+            for(let i = 0; i < n; i++)
+            {
+                const tr = document.createElement('tr')
+
+                let namec = wasm.get_asteroid_name(planet, i)
+                let timestamp = wasm.get_asteroid_timestamp(planet, i)
+
+                let name = decode_c_str(namec)
+                let t = timestamp_to_iso(timestamp)
+
+                tr.setAttribute('role', 'option')
+                tr.innerHTML = 
+                `
+                    <td>
+                        <div class="icon">
+                        <div class="icon-label">${name}</div>
+                        </div>
+                    </td>
+                    <td>${t}</td>
+                `
+
+                tbody.appendChild(tr)
+            }
+
+            tbody.addEventListener('click', function(event) {
+                on_asteroid_click(event)
+            })
+        }
+
+        function handle_planet_click(planet)
+        {
+            let n = wasm.get_num_asteroids(planet)
+            console.log("n " + n)
+
+            let dlg = document.getElementById("dlg-info")
+            let dlgInfo = document.getElementById("dlg-info-body")
+            let btn1 = document.getElementById("btn1")
+
+            if(n == 0)
+            {   
+                btn1.hidden = true
+                dlgInfo.textContent = "There are 0 Asteroids!"
+            }  
+            else
+            {
+                btn1.hidden = false
+                dlgInfo.textContent = "There are " + n + " Asteroids!"
+            }
+
+            dlg.hidden = false
+            cur_planet = planet
+        }
+
+        function select_asteroid(asteroid)
+        {
+            let planet = cur_planet
+            let i = asteroid
+
+            let namec = wasm.get_asteroid_name(planet, i)
+            let min_d = wasm.get_asteroid_min_diameter(planet, i)
+            let max_d = wasm.get_asteroid_max_diameter(planet, i)
+            let distance = wasm.get_asteroid_miss_distance(planet, i)
+            let velocity = wasm.get_asteroid_velocity(planet, i)
+            let hazard = wasm.is_asteroid_hazardous(planet, i)
+
+            let aname = document.getElementById("asteroid-name")
+            let amin_d = document.getElementById("asteroid-min-diam")
+            let amax_d = document.getElementById("asteroid-max-diam")
+            let adist = document.getElementById("asteroid-miss-distance")
+            let avel = document.getElementById("asteroid-velocity")
+            let ahaz = document.getElementById("hazard-warning")
+
+            aname.value = decode_c_str(namec)
+            amin_d.value = min_d
+            amax_d.value = max_d
+            adist.value = distance
+            avel.value = velocity
+            ahaz.hidden = (hazard == 0)
+        }
+
+        function on_planet_click(canvas, event) 
         {
             const rect = canvas.getBoundingClientRect()
-            const x = event.clientX - rect.left
-            const y = event.clientY - rect.top
+
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+
+            const x = (event.clientX - rect.left) * scaleX;
+            const y = (event.clientY - rect.top) * scaleY;
+
             console.log("x: " + x + " y: " + y)
 
-            let dlg = document.getElementById("dialogspace")
-            dlg.hidden = false
+            const planet = wasm.get_planet_by_position(x, y)
+
+            console.log("planet: " + planet)
+
+            if(planet === -1)
+                return
+
+            handle_planet_click(planet)
+        }
+
+        function on_asteroid_click(event)
+        {
+            // Trova l'elemento genitore 'tr' più vicino al punto in cui hai cliccato
+            const clickedRow = event.target.closest('tr');
+            
+            // Se non hai cliccato su una riga, interrompi
+            if (!clickedRow) return;
+
+            // 1. Deseleziona TUTTE le righe della tabella
+            const tbody = clickedRow.closest('tbody');
+
+            const allRows = tbody.querySelectorAll('tr');
+            allRows.forEach(row => {
+                row.setAttribute('aria-selected', 'false');
+            });
+
+            // 2. Applica la selezione direttamente sull'INTERA riga cliccata
+            clickedRow.setAttribute('aria-selected', 'true');
+
+            console.log("i " + clickedRow.sectionRowIndex)
+
+            cur_asteroid = clickedRow.sectionRowIndex
         }
 
         function elab_asteroids(asteroids_json)
@@ -171,24 +373,16 @@
             var imageData = new ImageData(wasmArray, width, height);
 
             cxt.putImageData(imageData, 0, 0);
-            //document.body.appendChild(canvas);
         }
     </script>
   </head>
   
   <body onload="init()">
-        <!-- <div style="display: inline-block; background-color: purple;">
-            <h1>Near Earth Objects</h1>
-            <button id="run_button" onclick="draw_asteroids()">=</button>
-            <label id="ret"></label>
-        </div> -->
-        
         <div class="crt-monitor">
             <div class="screen-border">
                 <div class="glass-screen">
                     <canvas id="buffer" style="display: grid; place-content: center;"></canvas>
-                    <!-- <canvas id="overlay" style="align-items: center; display: flex; z-index: 1;"> -->
-                    <div hidden id="dialogspace" style="width: 100%; height: 100%; place-content: center; position: absolute;background: repeating-conic-gradient(#aeaeae6e 0 25%, #6d6d6d7a 0 50%) 50% / 5px 5px;">
+                    <div hidden id="dlg-info" style="width: 100%; height: 100%; place-content: center; position: absolute;background: repeating-conic-gradient(#aeaeae6e 0 25%, #6d6d6d7a 0 50%) 50% / 5px 5px;">
                         <div class="window active" style="max-width: 300px; margin: auto;">
                             <div class="title-bar">
                                 <div class="title-bar-text">
@@ -199,15 +393,102 @@
                                 </div>
                             </div>
                             <div class="dialog-body">
-                                <div id="dlg-info" class="padding">There are 0 asteroids near this planet!</div>
+                                <div id="dlg-info-body" class="padding">There are 0 asteroids near this planet!</div>
                                 <div class="flex-row gap padding justify-center">
-                                    <button id="btn1">Close</button>
-                                    <button id="btn2">Yes</button>
+                                    <button id="btn1">Details</button>
+                                    <button id="btn2">Close</button>
                                 </div>
                             </div>
                         </div>
                     </div>
-                    <!-- </canvas> -->
+                    <div hidden id="dlg-asteroids" style="width: 100%; height: 100%; place-content: center; position: absolute;background: repeating-conic-gradient(#aeaeae6e 0 25%, #6d6d6d7a 0 50%) 50% / 5px 5px;">
+                        <!-- <div class="window active" style="max-width: 350px; max-height: 350px; margin: auto;"> -->
+                        <div class="window active" style="width: 380px; height: 380px; display: flex; flex-direction: column; margin: auto;">
+                            <div class="title-bar">
+                                <div class="title-bar-text">
+                                    Asteroids List
+                                </div>
+                                <div class="title-bar-buttons">
+                                <button data-close=""></button>
+                                </div>
+                            </div>
+                            <div class="dialog-body" style="display: flex; flex-direction: column; flex-grow: 1; overflow: hidden;">
+                                <div class="list" role="listbox" aria-multiselectable="true" style="overflow-y: auto; flex-grow: 1;">
+                                    <table class="detailed">
+                                        <thead>
+                                        <tr>
+                                            <th scope="col" role="button" aria-sort="ascending">Name</th>
+                                            <th scope="col" role="button">Observation</th>
+                                        </tr>
+                                        </thead>
+                                        <tbody id="asteroids-list">
+                                        <tr role="option" aria-selected="true">
+                                            <td>
+                                            <div class="icon">
+                                                <div class="icon-label">My Documents</div>
+                                            </div>
+                                            </td>
+                                            <td style="text-align: right;"></td>
+                                            <td>2020-07-14 20:28</td>
+                                        </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div class="flex-row gap padding justify-center" style="margin-top: 10px;">
+                                    <button id="dlg-asteroids-btn1">Select</button>
+                                    <button id="dlg-asteroids-btn2">Close</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                   <div hidden id="dlg-asteroid-info" style="width: 100%; height: 100%; place-content: center; position: absolute; background: repeating-conic-gradient(#aeaeae6e 0 25%, #6d6d6d7a 0 50%) 50% / 5px 5px;">
+                        <div class="window active" style="max-width: 350px; margin: auto;">
+                            <div class="title-bar">
+                                <div class="title-bar-text">
+                                    Asteroid Details
+                                </div>
+                                <div class="title-bar-buttons">
+                                    <button data-close=""></button>
+                                </div>
+                            </div>
+                            <div class="dialog-body">
+                                <div class="flex-row gap-large align-items-start padding" style="display: flex; gap: 30px">
+                                    <div style="flex: 0 0 100px; text-align: center;">
+                                        <img src="icons/asteroid.gif" alt="Asteroid Icon" style="width: 100px; height: 100px; image-rendering: pixelated; border: 1px solid #000; box-shadow: 2px 2px 0 #fff, inset 2px 2px 0 #808080, inset -2px -2px 0 #dfdfdf;">
+                                        <div id="hazard-warning" class="blinking-hazard">
+                                           ! HAZARD !
+                                        </div>
+                                    </div>
+
+                                    <div class="flex-column gap" style="flex: 1; display: flex; flex-direction: column;">
+                                        <div style="display: flex; flex-direction: column;">
+                                            <label for="id-name">Name:</label>
+                                            <input id="asteroid-name" type="text" id="id-name" value="" readonly>
+                                        </div>
+                                        <div style="display: flex; flex-direction: column;">
+                                            <label for="id-discovery">Min. Diameter (km):</label>
+                                            <input id="asteroid-min-diam" type="text" id="id-discovery" value="" readonly>
+                                        </div>
+                                        <div style="display: flex; flex-direction: column;">
+                                            <label for="id-class">Max. Diameter (km):</label>
+                                            <input id="asteroid-max-diam" type="text" id="id-class" value="" readonly>
+                                        </div>
+                                        <div style="display: flex; flex-direction: column;">
+                                            <label for="id-class">Miss Distance (km):</label>
+                                            <input id="asteroid-miss-distance" type="text" id="id-class" value="" readonly>
+                                        </div>
+                                        <div style="display: flex; flex-direction: column;">
+                                            <label for="id-class">Relative Velocity (km/h):</label>
+                                            <input id="asteroid-velocity" type="text" id="id-class" value="" readonly>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="flex-row padding justify-center" style="display: flex; justify-content: center; margin-top: 15px;">
+                                    <button id="dlg-asteroid-info-ok" style="width: 80px;">OK</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
             <div class="power-led"></div>
