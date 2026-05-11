@@ -30,6 +30,11 @@
             return Math.round((second - first) / (1000 * 60 * 60 * 24));
         }
 
+        function msec_date_diff(first, second) 
+        {        
+            return BigInt(second - first);
+        }
+
         async function init()
         {
             const canvas = document.getElementById("buffer")
@@ -41,12 +46,17 @@
             const stream = await WebAssembly.instantiateStreaming(app);
             wasm = stream.instance.exports;
             
-            var diff = days_date_diff(new Date(2000, 1, 1), new Date())
-            console.log("days " + diff)
-            wasm.set_days_since_epoch(diff)
+            var j2000 = msec_date_diff(new Date(2000, 1, 1), new Date())
+            var epoch = msec_date_diff(new Date(1970, 1, 1), new Date())
+
+            console.log("j2000 " + j2000)
+            wasm.set_timestamp_since_j2000(j2000)
+            wasm.set_timestamp_since_epoch(epoch)
 
             if(load_asteroids())
                 draw_asteroids()
+            else
+                console.log("aia")
         }
 
         function getCursorPosition(canvas, event) 
@@ -55,6 +65,9 @@
             const x = event.clientX - rect.left
             const y = event.clientY - rect.top
             console.log("x: " + x + " y: " + y)
+
+            let dlg = document.getElementById("dialogspace")
+            dlg.hidden = false
         }
 
         function elab_asteroids(asteroids_json)
@@ -126,7 +139,7 @@
             var status = elab_asteroids(json)
             
             if(status)
-                console.log("num " + wasm.get_num_asteroids())
+                console.log("num " + wasm.get_num_asteroids(2))
 
             console.log("status " + status)
 
@@ -175,7 +188,7 @@
                 <div class="glass-screen">
                     <canvas id="buffer" style="display: grid; place-content: center;"></canvas>
                     <!-- <canvas id="overlay" style="align-items: center; display: flex; z-index: 1;"> -->
-                    <div style="width: 100%; height: 100%; place-content: center; position: absolute;background: repeating-conic-gradient(#aeaeae6e 0 25%, #6d6d6d7a 0 50%) 50% / 5px 5px;">
+                    <div hidden id="dialogspace" style="width: 100%; height: 100%; place-content: center; position: absolute;background: repeating-conic-gradient(#aeaeae6e 0 25%, #6d6d6d7a 0 50%) 50% / 5px 5px;">
                         <div class="window active" style="max-width: 300px; margin: auto;">
                             <div class="title-bar">
                                 <div class="title-bar-text">

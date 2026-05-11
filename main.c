@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <assert.h>
 
 #include "json.h"
 
@@ -65,7 +66,10 @@ static struct asteroid asteroids[NUM_PLANETS][MAX_ASTEROIDS] = {0};
 static size_t num_asteroids[NUM_PLANETS] = {0};
 
 //per stimare l'orbita, si capit??
-static uint32_t days_since_epoch = 0;
+//in millisecondi
+static int64_t timestamp_since_epoch = 0;
+static int64_t timestamp_since_j2000 = 0;
+static int64_t days_since_j2000 = 0;
 
 //pianeti
 struct position planet_positions[NUM_PLANETS] = {0};
@@ -174,23 +178,6 @@ uint32_t planet_ascii[NUM_PLANETS][8*8] =
     }
 };
 
-struct json_object_element_s* get_element_by_name(struct json_object_element_s* start, const char* name)
-{
-    struct json_object_element_s* e = start;
-
-    while(e)
-    {
-        if(e->name)
-            if(e->name->string_size > 0)
-                if(!strcmp(e->name->string, name))
-                    return e;
-
-        e = e->next;
-    }
-
-    return e;
-}
-
 int check_element_value_type(struct json_object_element_s* e, json_type_t type)
 {
     if(!e)
@@ -205,26 +192,48 @@ int check_element_value_type(struct json_object_element_s* e, json_type_t type)
     return e->value->type == type;
 }
 
-int64_t get_epoch_approach(struct json_array_element_s* ap)
+struct json_object_element_s* get_element_by_name_type(struct json_object_element_s* start, const char* name, json_type_t type)
 {
-    if(!ap)
-        return 0;
+    struct json_object_element_s* e = start;
 
-    if(!ap->value)
-        return 0;
+    while(e)
+    {
+        if(e->name)
+            if(e->name->string_size > 0)
+                //trovato bastardo maledetto    
+                if(!strcmp(e->name->string, name))
+                {
+                    if(check_element_value_type(e, type))
+                        return e;
+                    else
+                        return 0; //che delusione...
+                }
 
-    if(ap->value->type != json_type_object)
-        return 0;
+        e = e->next;
+    }
 
-    struct json_object_element_s* e = get_element_by_name(ap->value->payload, "epoch_date_close_approach");
+    return e;
+}
 
+struct json_object_s* get_object_from_array_element(struct json_array_element_s* e)
+{
     if(!e)
         return 0;
 
     if(!e->value)
         return 0;
 
-    if(e->value->type != json_type_number)
+    if(e->value->type != json_type_object)
+        return 0;
+
+    return e->value->payload;
+}
+
+int64_t get_epoch_approach(struct json_object_s* ap)
+{
+    struct json_object_element_s* e = get_element_by_name_type(ap->start, "epoch_date_close_approach", json_type_number);
+
+    if(!check_element_value_type(e, json_type_number))
         return 0;
     
     //champagne
@@ -242,12 +251,28 @@ int get_string(char* dst, size_t n, struct json_value_s* value)
     if(!value->payload)
         return 0;
 
-    size_t len = MIN(n, strlen(value->payload));
+    struct json_string_s* str = value->payload;
+    size_t len = MIN(n, str->string_size);
 
-    memcpy(dst, value->payload, len);
+    memcpy(dst, str->string, len);
     dst[len] = 0; //cazz di terminatori
 
     return 1;
+}
+
+int get_planet_from_name(char* name)
+{
+    //fa schifo da morire!
+    if(!strcmp(name, "Earth"))
+        return EARTH;
+    else if(!strcmp(name, "Mars"))
+        return MARS;
+    else if(!strcmp(name, "Merc")) //è tagliato
+        return MERCURY;
+    else if(!strcmp(name, "Venus"))
+        return VENUS;
+
+    return -1;
 }
 
 int draw_circle(uint32_t* img, uint32_t w, uint32_t h, uint32_t xc, uint32_t yc, uint32_t r, uint32_t color)
@@ -330,17 +355,25 @@ void free_memory(unsigned char* memory)
         free(memory);
 }
 
-__attribute__((export_name("set_days_since_epoch")))
-void set_days_since_epoch(uint32_t days)
+
+__attribute__((export_name("set_timestamp_since_j2000")))
+void set_timestamp_since_j2000(int64_t t)
 {
-    days_since_epoch = days;
+    timestamp_since_j2000 = t;
+    days_since_j2000 = t / (1000 * 60 * 60 * 24);
+}
+
+__attribute__((export_name("set_timestamp_since_epoch")))
+void set_timestamp_since_epoch(int64_t t)
+{
+    timestamp_since_epoch = t;
 }
 
 __attribute__((export_name("get_planet_by_position")))
 int get_planet_by_position(int x, int y)
 {
     struct position* pos = planet_positions;
-    float* info = planet_infos + SIZE_SCALING;
+    float* info = (float*)planet_infos + SIZE_SCALING;
 
     for(int i = 0; i < NUM_PLANETS; i++, pos++, info += NUM_PLANET_INFOS)
     {
@@ -402,7 +435,8 @@ unsigned char* draw_asteroids(uint32_t w, uint32_t h)
         float scale = planet_infos[p][SIZE_SCALING];
 
         //anomalia media
-        float mean = m + (float)days_since_epoch * 360.0f / period;
+        float mean = m + (float)days_since_j2000 * 360.0f / period;
+        
         //correzione orbita
         //int c = 360.0f / M_PI * ec * sin((mean - pe) * 180.0f / M_PI);
 
@@ -440,9 +474,9 @@ int load_asteroids(const char* json, size_t n)
     if(!obj->start->name)
         return 0;
 
-    struct json_object_element_s* neo = get_element_by_name(obj->start, "near_earth_objects");
+    struct json_object_element_s* neo = get_element_by_name_type(obj->start, "near_earth_objects", json_type_object);
 
-    if(!check_element_value_type(neo, json_type_object))
+    if(!neo)
         return 0;
 
     struct json_object_s* neo_obj = (struct json_object_s*)neo->value->payload;
@@ -462,7 +496,7 @@ int load_asteroids(const char* json, size_t n)
         }
 
         if(date_arr->value->type != json_type_array)
-            return -1;
+            continue;
 
         struct json_array_s* a_array = (struct json_array_s*)date_arr->value->payload;
         struct json_array_element_s* a = a_array->start;
@@ -472,16 +506,12 @@ int load_asteroids(const char* json, size_t n)
             if(!a->value)
                 return -1;
 
-            uint8_t planet = -1;
-
             struct json_object_s* a_obj = a->value->payload;
             struct json_object_element_s* e = 0;
 
             //prima devo trovare il pianeta di riferimento
             //ci potrebbero essere più approach
-            e = get_element_by_name(a_obj->start, "close_approach_data");
-
-            if(!check_element_value_type(e, json_type_array))
+            if(!(e = get_element_by_name_type(a_obj->start, "close_approach_data", json_type_array)))
             {
                 a = a->next;
                 continue;
@@ -489,26 +519,72 @@ int load_asteroids(const char* json, size_t n)
 
             struct json_array_s* approach_array = (struct json_array_s*)e->value->payload;
             struct json_array_element_s* ap = approach_array->start;
-            struct json_array_element_s* near_ap = ap;
-
-            int64_t near_epoch = 0;
+            struct json_array_element_s* near_ap = 0;
+            int64_t near_epoch_diff = 0;
 
             //trovo quella più vicina ad oggi
             while(ap)
             {
-                if(ap != approach_array->start)
+                struct json_object_s* content = get_object_from_array_element(ap);
+
+                if(!content)
                 {
-                    int64_t epoch = get_epoch_approach(ap);
-                    if(epoch)       
+                    ap = ap->next;
+                    continue;
+                }
+
+                if(near_ap != 0)
+                {
+                    int64_t diff = llabs(timestamp_since_epoch - get_epoch_approach(content));
+
+                    if(diff < near_epoch_diff)
+                    {
+                        near_epoch_diff = diff;
+                        near_ap = ap;   
+                    }
                 }
                 else //prendo la prima data come riferimento
-                    near_epoch = get_epoch_approach(ap);
-
+                {
+                    near_epoch_diff = llabs(timestamp_since_epoch - get_epoch_approach(content));
+                    near_ap = ap;
+                }
+                
                 ap = ap->next;
             }
 
             //non ho trovato un cazzo oppure è successo qualcosa
             if(!near_ap)
+            {
+                a = a->next;
+                continue;
+            }
+
+            struct json_object_s* content = get_object_from_array_element(near_ap);
+
+            //problemi problemi
+            if(!content)
+            {
+                a = a->next;
+                continue;
+            }
+
+            char planet_name[16] = {0};
+            if(!(e = get_element_by_name_type(content->start, "orbiting_body", json_type_string)))
+            {
+                a = a->next;
+                continue;
+            }
+
+            if(!get_string(planet_name, 15, e->value))
+            {
+                a = a->next;
+                continue;
+            }
+
+            int planet = get_planet_from_name(planet_name);
+
+            //chissà che cazzo di pianeta è
+            if(planet == -1)
             {
                 a = a->next;
                 continue;
@@ -522,22 +598,52 @@ int load_asteroids(const char* json, size_t n)
                 a = a->next;
                 continue;
             }
-            
-            e = get_element_by_name(a_obj->start, "name");
-
-            if(!check_element_value_type(e, json_type_string))
-            {
-                a = a->next;
-                continue;
-            }
 
             struct asteroid* asteroid = &asteroids[planet][*num];
-
-            if(!get_string(asteroid->name, ASTEROID_NAME_SIZE, e->value->payload))
+            
+            if(!(e = get_element_by_name_type(a_obj->start, "name", json_type_string)))
             {
                 a = a->next;
                 continue;
             }
+
+            if(!get_string(asteroid->name, ASTEROID_NAME_SIZE, e->value))
+            {
+                a = a->next;
+                continue;
+            }
+
+            if(!(e = get_element_by_name_type(a_obj->start, "estimated_diameter", json_type_object)))
+            {
+                a = a->next;
+                continue;
+            }
+
+            struct json_object_s* estimated_diameter = e->value->payload;
+
+            if(!(e = get_element_by_name_type(estimated_diameter->start, "kilometers", json_type_object)))
+            {
+                a = a->next;
+                continue;
+            }
+
+            struct json_object_s* diameter = e->value->payload;
+
+            if(!(e = get_element_by_name_type(diameter->start, "estimated_diameter_min", json_type_number)))
+            {
+                a = a->next;
+                continue;
+            }
+
+            asteroid->min_diameter = *(float*)e->value->payload;
+
+            if(!(e = get_element_by_name_type(diameter->start, "estimated_diameter_max", json_type_number)))
+            {
+                a = a->next;
+                continue;
+            }
+
+            asteroid->max_diameter = *(float*)e->value->payload;
 
             (*num)++;
 
