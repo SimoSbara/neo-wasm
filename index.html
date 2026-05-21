@@ -60,11 +60,6 @@
             return Math.round((second - first) / (1000 * 60 * 60 * 24));
         }
 
-        function msec_date_diff(first, second) 
-        {        
-            return BigInt(second - first);
-        }
-
         async function init_events()
         {
             const canvas = document.getElementById("buffer")
@@ -126,12 +121,14 @@
             const stream = await WebAssembly.instantiateStreaming(app);
             wasm = stream.instance.exports;
             
-            var j2000 = msec_date_diff(new Date(2000, 1, 1), new Date())
-            var epoch = msec_date_diff(new Date(1970, 1, 1), new Date())
+            var now = Date.now(); 
+            var j2000_epoch_ms = Date.UTC(2000, 0, 1, 12, 0, 0);
+            var j2000_diff = now - j2000_epoch_ms;
+            var epoch_diff = now;
 
-            console.log("j2000 " + j2000)
-            wasm.set_timestamp_since_j2000(j2000)
-            wasm.set_timestamp_since_epoch(epoch)
+            console.log("j2000 " + j2000_epoch_ms)
+            wasm.set_timestamp_since_j2000(BigInt(j2000_diff))
+            wasm.set_timestamp_since_epoch(BigInt(epoch_diff))
 
             if(load_asteroids())
                 draw_asteroids()
@@ -151,17 +148,21 @@
                 const tr = document.createElement('tr')
 
                 let namec = wasm.get_asteroid_name(planet, i)
+                let hazard = wasm.is_asteroid_hazardous(planet, i)
                 let timestamp = wasm.get_asteroid_timestamp(planet, i)
 
                 let name = decode_c_str(namec)
+                let style = (hazard) ? "style=\"color: red;\"" : ""
                 let t = timestamp_to_iso(timestamp)
+
+                console.log(style)
 
                 tr.setAttribute('role', 'option')
                 tr.innerHTML = 
                 `
                     <td>
                         <div class="icon">
-                        <div class="icon-label">${name}</div>
+                        <div class="icon-label" ${style}>${name}</div>
                         </div>
                     </td>
                     <td>${t}</td>
@@ -250,13 +251,10 @@
 
         function on_asteroid_click(event)
         {
-            // Trova l'elemento genitore 'tr' più vicino al punto in cui hai cliccato
             const clickedRow = event.target.closest('tr');
             
-            // Se non hai cliccato su una riga, interrompi
             if (!clickedRow) return;
 
-            // 1. Deseleziona TUTTE le righe della tabella
             const tbody = clickedRow.closest('tbody');
 
             const allRows = tbody.querySelectorAll('tr');
@@ -264,11 +262,7 @@
                 row.setAttribute('aria-selected', 'false');
             });
 
-            // 2. Applica la selezione direttamente sull'INTERA riga cliccata
             clickedRow.setAttribute('aria-selected', 'true');
-
-            console.log("i " + clickedRow.sectionRowIndex)
-
             cur_asteroid = clickedRow.sectionRowIndex
         }
 

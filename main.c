@@ -30,9 +30,7 @@ enum planets_e
 enum planets_info_e
 {
     THETA_J2000 = 0, //angolo di riferimento nel primo gennaio 2000
-    YEAR_PERIOD, //quanti giorni per un anno solare?
-    ECCENTRICITY, //visto che le orbite sono ellissi
-    PERIHELION, //perielio... fammi stare zitto
+    ROT_PER_DAY, //quanti gradi ruota al giorno? cazz di domanda...
     SIZE_SCALING, //per la grafica
     NUM_PLANET_INFOS
 };
@@ -77,7 +75,7 @@ static size_t num_asteroids[NUM_PLANETS] = {0};
 //in millisecondi
 static int64_t timestamp_since_epoch = 0;
 static int64_t timestamp_since_j2000 = 0;
-static int64_t days_since_j2000 = 0;
+static float days_since_j2000 = 0.0f; //in modo tale da avere rotazioni più fini
 
 //pianeti
 struct position planet_positions[NUM_PLANETS] = {0};
@@ -93,10 +91,10 @@ static float planet_radius[NUM_PLANETS] =
 
 static float planet_infos[NUM_PLANETS][NUM_PLANET_INFOS] =
 {
-    {252.25f, 87.97f, 0.2056f, 77.45f, 2},
-    {181.98f, 224.7f, 0.0067f, 131.53f, 3},
-    {100.46f, 365.25f, 0.0167f, 102.94f, 3},
-    {355.45f, 686.98f, 0.0934f, 336.04f, 3}
+    {252.25f, 4.0923f, 2},
+    {181.98f, 1.6021f, 3},
+    {100.46f, 0.9856f, 3},
+    {355.45f,  0.5240f, 3}
 };
 
 //palette di colori per i pianeti
@@ -370,7 +368,7 @@ __attribute__((export_name("set_timestamp_since_j2000")))
 void set_timestamp_since_j2000(int64_t t)
 {
     timestamp_since_j2000 = t;
-    days_since_j2000 = t / (1000 * 60 * 60 * 24);
+    days_since_j2000 = (float)t / (float)(1000 * 60 * 60 * 24); //calcolo più preciso
 }
 
 __attribute__((export_name("set_timestamp_since_epoch")))
@@ -440,22 +438,16 @@ unsigned char* draw_asteroids(uint32_t w, uint32_t h)
         float rf = planet_radius[p] / OBSERVATION_RADIUS;
         uint32_t r = rf * w / 2;
 
-        float m = planet_infos[p][THETA_J2000];
-        float period = planet_infos[p][YEAR_PERIOD];
-        float ec = planet_infos[p][ECCENTRICITY];
-        float pe = planet_infos[p][PERIHELION];
+        float start = planet_infos[p][THETA_J2000];
+        float rot = planet_infos[p][ROT_PER_DAY];
         float scale = planet_infos[p][SIZE_SCALING];
 
-        //anomalia media
-        float mean = m + (float)days_since_j2000 * 360.0f / period;
-        
-        //correzione orbita
-        //int c = 360.0f / M_PI * ec * sin((mean - pe) * 180.0f / M_PI);
+        //longitudine media, non correggo alla orbita ellittica... sti cazzi
+        float L = fmodf(start + (rot * days_since_j2000), 360.0f);
+        float tetha = L * (M_PI / 180.0f);
 
-        uint32_t tetha = (mean) * 180.0f / M_PI;
-
-        uint32_t xp = r * cos(tetha) + w2;
-        uint32_t yp = r * sin(tetha) + h2;
+        uint32_t xp = w2 + r * cos(tetha);
+        uint32_t yp = h2 - r * sin(tetha); //inverto asse Y perchè le coordinate cartesiane crescono verso l'alto
 
         planet_positions[p].x = xp;
         planet_positions[p].y = yp;
